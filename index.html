@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>···</title>
+<!--
+  ============================================================
+  ИНТЕРАКТИВНЫЙ ХОРРОР-ПРИКОЛ — строгий минимализм
+  Всё в одном файле: HTML + CSS + JS, без библиотек.
+
+  РЯДОМ С ЭТИМ ФАЙЛОМ:
+    audio/scary.mp3   — фоновая страшная музыка
+    audio/dynasty.mp3 — трек для красной таблетки
+    audio/vkube.mp3   — трек для синей таблетки
+    img/hand-red.jpeg  — красная рука
+    img/hand-blue.jpeg — синяя рука
+    (если у тебя файлы .png — поменяй расширение и в тегах <img> ниже)
+
+  ГДЕ ЧТО ПРАВИТЬ:
+    1) SONGS.red.audio / SONGS.blue.audio — пути к аудио (блок JS №1).
+    2) SONGS.*.lines — текст песни и время каждой строки (там же).
+    3) Константы таймингов — блок JS №2.
+  ============================================================
+-->
+<style>
+  /* ---------- БАЗА: чёрный фон, тонкий светлый шрифт ---------- */
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    color: #fff;
+    font-family: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-weight: 300;
+    letter-spacing: .02em;
+    font-style: normal;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+
+  audio { display: none; }
+
+  /* ---------- ОВЕРЛЕЙ: разблокировка автоплея аудио ---------- */
+  #overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 300;
+    letter-spacing: .02em;
+    cursor: pointer;
+    opacity: 1;
+    transition: opacity .8s ease;
+  }
+
+  /* ---------- СЦЕНЫ ---------- */
+  .scene {
+    position: fixed;
+    inset: 0;
+    display: none;              /* по очереди через display */
+    align-items: center;
+    justify-content: center;
+    opacity: 1;
+    transition: opacity 2s ease; /* используется при затухании сцены 2 */
+  }
+  .scene.active { display: flex; }
+
+  /* ---------- СЦЕНА 1 ---------- */
+  #scene1 { flex-direction: column; }
+
+  #questionWrap {
+    width: 100%;
+    text-align: center;
+    padding: 0 8vw;
+    opacity: 0;
+    transform: scale(1);
+    /* opacity за 2с, медленное приближение за 10с — без пульсации и дрожания */
+    transition: opacity 2s ease, transform 10s linear;
+  }
+  #questionWrap.show {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  #question {
+    font-size: clamp(22px, 3.6vw, 44px);
+    font-weight: 300;
+    line-height: 1.4;
+    letter-spacing: .02em;
+    color: #fff;
+  }
+
+  #buttons {
+    position: absolute;
+    bottom: 12vh;
+    display: flex;
+    gap: 28px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 1s ease;
+  }
+  #buttons.show { opacity: 1; pointer-events: auto; }
+
+  .yesBtn {
+    background: transparent;
+    border: 1px solid #fff;
+    color: #fff;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 300;
+    letter-spacing: .2em;
+    padding: 10px 24px;
+    cursor: pointer;
+    opacity: 1;
+    transition: border-color .4s ease, opacity .4s ease;
+  }
+  /* без инверсии и без свечения: чуть приглушаем рамку и текст */
+  .yesBtn:hover {
+    border-color: #aaa;
+    opacity: .7;
+  }
+
+  /* ---------- СЦЕНА 2: слова «ДА» сыплются с неба ---------- */
+  #scene2 {
+    display: none;              /* .active включает flex */
+    overflow: hidden;
+  }
+  #scene2.active { display: block; }
+  .yesWord {
+    position: absolute;
+    opacity: 0;
+    font-weight: 300;
+    font-size: clamp(14px, 1.9vw, 24px);
+    letter-spacing: .02em;
+    color: #fff;
+    /* Длительность и задержка задаются JS через CSS-переменные */
+    animation: wordFall var(--dur, 2.4s) cubic-bezier(.22, .68, .3, 1)
+               var(--delay, 0s) forwards;
+  }
+  @keyframes wordFall {
+    0%   { opacity: 0; transform: translateY(-120vh); }
+    12%  { opacity: 1; }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---------- СЦЕНА 3 ---------- */
+  /* Руки стоят в ряд через flex и не накладываются друг на друга.
+     Порядок в HTML: сначала красная, потом синяя => синяя справа. */
+  #scene3 {
+    align-items: flex-end;
+    justify-content: center;
+    gap: clamp(16px, 6vw, 90px);
+    padding: 0 4vw 8vh;
+  }
+  .hand {
+    position: relative;
+    flex: 0 1 auto;
+    width: clamp(120px, 24vw, 260px);
+    height: auto;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(40px);
+    transition: opacity 1.2s ease, transform 1.2s ease;
+  }
+  .hand.up {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .hand:hover {
+    opacity: .85;
+    transform: translateY(0) scale(1.03);
+    transition: opacity .4s ease, transform .4s ease;
+  }
+
+  /* ---------- СЦЕНА 4: караоке по центру экрана ---------- */
+  #scene4 { align-items: center; justify-content: center; padding: 0; }
+  /* Все строки лежат в одной ячейке grid — поэтому текст строго по центру,
+     а старая и новая строки накладываются и плавно сменяют друг друга */
+  #lyric {
+    display: grid;
+    place-items: center;
+    width: 90vw;
+    min-height: 40vh;
+    text-align: center;
+  }
+  .line {
+    grid-area: 1 / 1;
+    position: relative;
+    max-width: 100%;
+    opacity: 0;
+    transform: translateY(-40px);
+    clip-path: inset(0 100% 0 0);
+    color: #fff;
+    font-weight: 300;
+    font-size: clamp(28px, 5vw, 56px);
+    line-height: 1.4;
+    letter-spacing: .02em;
+    transition: opacity .6s ease, transform .6s ease, clip-path .6s ease;
+  }
+  /* Новая строка спускается сверху, «печатается» слева направо
+     и одновременно выходит из лёгкого размытия в резкость */
+  .line.show { animation: lineDrop .85s cubic-bezier(.16, 1, .3, 1) forwards; }
+  @keyframes lineDrop {
+    0%   { opacity: 0; transform: translateY(-40px); clip-path: inset(0 100% 0 0); filter: blur(8px); letter-spacing: .14em; }
+    12%  { opacity: 1; }
+    100% { opacity: 1; transform: translateY(0);    clip-path: inset(0 0 0 0);    filter: blur(0);  letter-spacing: .02em; }
+  }
+  /* Обычная строка разбивается на слова — они встают волной с задержкой */
+  .word {
+    display: inline-block;
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  .line.show .word { animation: wordRise .5s ease-out forwards; }
+  @keyframes wordRise {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  /* Предыдущая строка просто растворяется на месте */
+  .line.hide {
+    opacity: 0;
+    transform: translateY(0);
+    clip-path: inset(0 0 0 0);
+  }
+  /* Припев: крупнее, шире межбуквенный интервал, мягкое «дыхание» и движение */
+  .line.dyn {
+    font-size: clamp(40px, 8vw, 80px);
+    letter-spacing: .05em;
+  }
+  .line.dyn.show {
+    animation: dynDrop .85s cubic-bezier(.16, 1, .3, 1) forwards,
+               dynBreath 2.4s ease-in-out .85s infinite alternate;
+  }
+  @keyframes dynDrop {
+    0%   { opacity: 0; transform: translateY(-40px); clip-path: inset(0 100% 0 0); filter: blur(8px); letter-spacing: .16em; }
+    12%  { opacity: 1; }
+    100% { opacity: 1; transform: translateY(0);    clip-path: inset(0 0 0 0);    filter: blur(0);  letter-spacing: .05em; }
+  }
+  @keyframes dynBreath {
+    from { opacity: .9; transform: translateX(-5px); }
+    to   { opacity: 1; transform: translateX(5px); }
+  }
+  /* Тонкая черта под припевом прочерчивается слева направо */
+  .line.dyn::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -.18em;
+    width: min(62%, 420px);
+    height: 1px;
+    background: #fff;
+    opacity: .55;
+    transform: translateX(-50%) scaleX(0);
+    transform-origin: center;
+    animation: ruleGrow 1.1s .55s ease-out forwards;
+  }
+  @keyframes ruleGrow {
+    to { transform: translateX(-50%) scaleX(1); }
+  }
+  /* Последняя буква припева («я») тянутся: каждая новая — шире предыдущей */
+  .stretch-letter {
+    display: inline-block;
+    opacity: 0;
+    transform: scaleX(.25) translateX(-10px);
+    animation: letterStretch .75s cubic-bezier(.16, 1, .3, 1) forwards;
+  }
+  @keyframes letterStretch {
+    from { opacity: 0; transform: scaleX(.25) translateX(-10px); }
+    to   { opacity: 1; transform: scaleX(1.55) translateX(0); }
+  }
+
+  /* ---------- АДАПТИВНОСТЬ: компьютер и телефон ---------- */
+  @supports (height: 100dvh) {
+    html, body { height: 100dvh; }
+  }
+  /* Телефон в портрете */
+  @media (max-width: 600px) {
+    #questionWrap { padding: 0 6vw; }
+    #question { font-size: clamp(20px, 6.5vw, 34px); }
+    #buttons { bottom: 10vh; gap: 16px; }
+    .yesBtn { padding: 9px 18px; font-size: 14px; }
+    .yesWord { font-size: clamp(13px, 4vw, 20px); }
+    .hand { width: clamp(110px, 34vw, 190px); }
+    #scene3 { gap: 10px; padding: 0 3vw 7vh; }
+    #lyric { width: 94vw; min-height: 34vh; }
+    .line { font-size: clamp(24px, 7vw, 42px); }
+    .line.dyn { font-size: clamp(34px, 10vw, 62px); }
+  }
+  /* Телефон в альбоме и низкие экраны */
+  @media (max-height: 500px) {
+    #lyric { min-height: 60vh; }
+    .line { font-size: clamp(20px, 4.5vh, 40px); }
+    .line.dyn { font-size: clamp(30px, 7vh, 60px); }
+    #buttons { bottom: 6vh; }
+    .hand { width: clamp(90px, 22vh, 200px); }
+  }
+  /* Убираем синюю подсветку тапа на мобильных */
+  * { -webkit-tap-highlight-color: transparent; }
+</style>
+</head>
+<body>
+
+  <!-- Оверлей: первый клик разрешает браузеру играть аудио -->
+  <div id="overlay">нажми, чтобы начать</div>
+
+  <audio id="scaryMusic" src="audio/scary.mp3" loop preload="auto"></audio>
+  <audio id="songMusic" src="" preload="auto"></audio>
+
+  <div id="scene1" class="scene">
+    <div id="questionWrap"><div id="question">Ты уверен что хочешь этого?...</div></div>
+    <div id="buttons">
+      <button class="yesBtn" type="button">ДА</button>
+      <button class="yesBtn" type="button">ДА</button>
+    </div>
+  </div>
+
+  <!-- СЦЕНА 2 заполняется динамически -->
+  <div id="scene2" class="scene"></div>
+
+  <div id="scene3" class="scene">
+    <!-- красная рука слева, синяя справа -->
+    <img id="handRed"  class="hand" src="img/hand-red.jpeg"  alt="">
+    <img id="handBlue" class="hand" src="img/hand-blue.jpeg" alt="">
+  </div>
+
+  <!-- СЦЕНА 4: только текст, без названия трека и исполнителя -->
+  <div id="scene4" class="scene">
+    <div id="lyric"></div>
+  </div>
+
+<script>
+/* ============================================================
+   JS №1 — ТЕКСТЫ ПЕСЕН, АУДИО И ТАЙМИНГИ СТРОК
+
+   SONGS.red  /  SONGS.blue
+     audio — путь к mp3
+     lines — [{ text: строка, time: секунда начала, dyn: припев }]
+
+   time = секунда начала строки в треке (можно подсмотреть в проигрывателе).
+   dyn: true — только припевные строки «Династия» / «В клубе».
+   У припевов последняя буква («я» / «е») будет тянуться и размножаться.
+
+   Полные тексты песен защищены авторским правом, поэтому здесь
+   оставлены заглушки по секциям с примерными секундами. Проверенные
+   источники, откуда можно скопировать строки и уточнить time:
+     Династия: https://web.archive.org/web/20260727154618/https://genius.com/Villian-and-madk1d-dynasty-lyrics
+     В клубе:  https://web.archive.org/web/20260329204858/https://genius.com/Darkprinceee-inclub-lyrics
+   ============================================================ */
+const SONGS = {
+  red: {
+    audio: 'audio/dynasty.mp3',
+    lines: [
+      // часть I, припев
+      { text: "Давалке МСК стреляю сиги — ковбой", time: 4,  dyn: false },
+      { text: "Я кинню тебя точно так же, только чуть-чуть другой", time: 7,  dyn: false },
+      { text: "Стеснялась всё снимать, окей, прикрой ебальник рукой", time: 10,  dyn: false },
+      { text: "Я смотрю в зеркало всё так же, но не стану собой", time: 14,  dyn: false },
+      // куплет 1
+      { text: "Люблю Москву, но заебали все московские шалавы", time: 17, dyn: false },
+      { text: "В уродстве вижу красоту, В уродстве моя красота", time: 23, dyn: false },
+      { text: "Теперь на вы, ведь ты давно уже не та", time: 27, dyn: false },
+      { text: "Давай я тебя порежу, а ты мне выстрелишь в лоб", time: 30, dyn: false },
+      { text: "Мы психопаты, флексим так, как будто завтра умрём, Но это вряд ли, поймал, И белый дым, чё-то чернит потолок, На время завязал, теперь Я курю так, как будто никогда не умел Чувство то, что я пиздец отупел Ты не стреляешь, давай дам прицел Сумма большая, как будто я даун — Бро, не могу думать сегодня", time: 33, dyn: false },
+      { text: "Ты всё ещё там, но не моя, ты всё ещё тут, но там не я Мы делаем много, но, честно, я знаю, что буду непонят......", time: 52, dyn: false },
+      // переход — припевное слово
+      { text: "Династия", time: 59, dyn: true }
+    ]
+  },
+  blue: {
+    audio: 'audio/vkube.mp3',
+    lines: [
+      // интро
+      { text: "Клубняк, её запомнит туалет", time: 0,  dyn: false },
+      { text: "Она останется на одной из сторок, воу", time: 3,  dyn: false },
+      { text: "Концерт, её любимый человек", time: 6,  dyn: false },
+      { text: "Уже тусуется с шалавой дома", time: 9,  dyn: false },
+      // припев
+      { text: "В клубе ее подруги, говорят то, что я ублюдок на её фоне", time: 11, dyn: true },
+      { text: "Ты плачешь, я не беру трубки, а что такого?", time: 15, dyn: false },
+      { text: "Одна бессмысленная ночь у телефона", time: 18, dyn: false },
+      { text: "В клубе ее подруги, говорят то, что я ублюдок на её фоне", time: 22, dyn: true },
+      { text: "Ты плачешь, я не беру трубки, а что такого?", time: 26, dyn: false },
+      { text: "Ты снова плачешь на одно из моих фото", time: 29, dyn: false },
+      { text: "Ты ещё газлайтишь меня, мне строишь глаза И отмечаешь меня под каждой сторис!! И почему-то твои друзья ненавидят меня, Но каждый день заходят на профиль", time: 32, dyn: false },
+      { text: "Малыш, в джинсах Ed Hardy, давай, не стесняйся, Сходи с ума, сходи с ума, сходи с ума, Малыш, не думай влюбляться, уже пора, Сходи с ума, сходи с ума, сходи с ума", time: 43, dyn: false },
+      { text: "В клубе ее подруги, говорят то, что я ублюдок на её фоне", time: 54, dyn: true },
+      { text: "Ты плачешь, я не беру трубки, а что такого?", time: 58, dyn: false },
+      { text: "Одна бессмысленная ночь у телефона", time: 62, dyn: false },
+      { text: "В клубе ее подруги, говорят то, что я ублюдок на её фоне", time: 65, dyn: true },
+      { text: "Ты плачешь, я не беру трубки, а что такого?", time: 69, dyn: false },
+      { text: "Ты снова плачешь на одно из моих фото", time: 73, dyn: false },
+      { text: "В КЛУБЕ", time: 76, dyn: true }
+    ]
+  }
+};
+
+/* ============================================================
+   JS №2 — ТАЙМИНГИ СЦЕН
+   ============================================================ */
+const SCARY_FADE_IN_MS  = 2000;  // нарастание громкости 0 → 0.35
+const SCARY_TARGET_VOL  = 0.35;
+const SCARY_PULSE_MS    = 800;   // пульсация 0.15–0.5
+const QUESTION_DELAY_MS = 250;   // появление вопроса
+const BUTTONS_DELAY_MS  = 5000;  // появление кнопок ДА
+const YES_COUNT         = 200;   // сколько слов «ДА» сыплется
+const YES_FALL_MIN_MS   = 1500;  // минимальная скорость падения
+const YES_FALL_MAX_MS   = 2800;  // максимальная скорость падения
+const YES_DELAY_MAX_MS  = 1800;  // разброс задержек (постепенное заполнение)
+const YES_FILL_MS       = 4500;  // начало затухания сцены 2
+const SCENE2_FADE_MS    = 2000;  // длительность затухания сцены 2
+const PILL_FADE_MS      = 1500;  // затухание страшной музыки
+const HANDS_FADE_MS     = 1000;  // исчезновение рук
+
+/* ============================================================
+   JS №3 — ЭЛЕМЕНТЫ И СОСТОЯНИЕ
+   ============================================================ */
+const overlay      = document.getElementById('overlay');
+const scaryMusic   = document.getElementById('scaryMusic');
+const songMusic    = document.getElementById('songMusic');
+const scene1       = document.getElementById('scene1');
+const scene2       = document.getElementById('scene2');
+const scene3       = document.getElementById('scene3');
+const scene4       = document.getElementById('scene4');
+const questionWrap = document.getElementById('questionWrap');
+const buttons      = document.getElementById('buttons');
+const yesBtns      = document.querySelectorAll('.yesBtn');
+const handRed      = document.getElementById('handRed');
+const handBlue     = document.getElementById('handBlue');
+const lyricEl      = document.getElementById('lyric');
+
+let flickerTimer     = null; // интервал пульсации громкости
+let currentLines     = null; // активный массив строк
+let currentLineIndex = -1;   // индекс последней показанной строки
+let stretchTimer     = null; // таймер «растягивания» последней буквы припева
+
+/* ============================================================
+   JS №4 — ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+   ============================================================ */
+
+// Плавное нарастание громкости страшной музыки
+function fadeAudioIn(audio, target, ms) {
+  audio.volume = 0;
+  const t0 = performance.now();
+  (function step(now) {
+    const p = Math.min(1, (now - t0) / ms);
+    audio.volume = target * p;
+    if (p < 1) requestAnimationFrame(step);
+  })(t0);
+}
+
+// Плавное затухание громкости до нуля, затем остановка
+function fadeAudioOut(audio, ms) {
+  if (flickerTimer) { clearInterval(flickerTimer); flickerTimer = null; }
+  const from = audio.volume;
+  if (audio.paused || from <= 0) { audio.pause(); audio.currentTime = 0; return; }
+  const t0 = performance.now();
+  (function step(now) {
+    const p = Math.min(1, (now - t0) / ms);
+    audio.volume = from * (1 - p);
+    if (p < 1) requestAnimationFrame(step);
+    else { audio.pause(); audio.currentTime = 0; }
+  })(t0);
+}
+
+// Пульсация громкости страшной музыки: 0.15–0.5 каждые ~800 мс
+function startFlicker() {
+  flickerTimer = setInterval(() => {
+    if (!scaryMusic.paused) scaryMusic.volume = 0.15 + Math.random() * 0.35;
+  }, SCARY_PULSE_MS);
+}
+
+// Показ нужной сцены (display/opacity)
+function showScene(n) {
+  document.querySelectorAll('.scene').forEach((s) => {
+    s.classList.remove('active');
+    s.style.opacity = '';
+  });
+  document.getElementById('scene' + n).classList.add('active');
+}
+
+/* ============================================================
+   JS №5 — СЦЕНА 1
+   ============================================================ */
+overlay.addEventListener('click', function begin() {
+  overlay.style.opacity = '0';
+  setTimeout(() => { overlay.style.display = 'none'; }, 800);
+
+  // Клик пользователя разблокировал автоплей
+  scaryMusic.volume = 0;
+  scaryMusic.play().catch(() => {});
+  fadeAudioIn(scaryMusic, SCARY_TARGET_VOL, SCARY_FADE_IN_MS);
+  setTimeout(startFlicker, SCARY_FADE_IN_MS);
+
+  showScene(1);
+
+  // Вопрос: opacity 0→1 за 2с, масштаб 1.0→1.15 за 10с (CSS)
+  setTimeout(() => questionWrap.classList.add('show'), QUESTION_DELAY_MS);
+
+  // Через ~5 секунд — две одинаковые кнопки ДА, варианта НЕТ нет
+  setTimeout(() => buttons.classList.add('show'), BUTTONS_DELAY_MS);
+}, { once: true });
+
+yesBtns.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    showScene(2);
+    fillYesScreen();
+  });
+});
+
+/* ============================================================
+   JS №6 — СЦЕНА 2: слова «ДА» сыплются с неба
+   ============================================================ */
+function fillYesScreen() {
+  scene2.style.opacity = '1';
+  scene2.innerHTML = '';
+
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < YES_COUNT; i++) {
+    const span = document.createElement('span');
+    span.className = 'yesWord';
+    span.textContent = 'ДА';
+
+    // Каждое слово падает в случайную точку экрана со своей скоростью
+    span.style.left = (Math.random() * 92).toFixed(2) + 'vw';
+    span.style.top = (Math.random() * 90).toFixed(2) + 'vh';
+    span.style.setProperty('--dur',
+      (YES_FALL_MIN_MS + Math.random() * (YES_FALL_MAX_MS - YES_FALL_MIN_MS)).toFixed(0) + 'ms');
+    span.style.setProperty('--delay',
+      (Math.random() * YES_DELAY_MAX_MS).toFixed(0) + 'ms');
+
+    frag.appendChild(span);
+  }
+  scene2.appendChild(frag);
+
+  // Когда экран заполнился — сцена плавно гаснет (2с), затем сцена 3
+  setTimeout(fadeEverythingOut, YES_FILL_MS);
+}
+
+function fadeEverythingOut() {
+  scene2.style.opacity = '0';               // transition: opacity 2s (CSS)
+  setTimeout(() => {
+    showScene(3);
+    showPills();
+  }, SCENE2_FADE_MS);
+}
+
+/* ============================================================
+   JS №7 — СЦЕНА 3: руки
+   ============================================================ */
+function showPills() {
+  // Мягкое всплытие снизу, друг за другом, за 1.2с (CSS)
+  setTimeout(() => handRed.classList.add('up'), 150);
+  setTimeout(() => handBlue.classList.add('up'), 650);
+
+  handRed.onclick  = () => chooseHand('red');
+  handBlue.onclick = () => chooseHand('blue');
+}
+
+function chooseHand(choice) {
+  if (scene3.dataset.chosen) return;        // защита от повторного клика
+  scene3.dataset.chosen = '1';
+
+  fadeAudioOut(scaryMusic, PILL_FADE_MS);   // музыка затухает и останавливается
+  handRed.style.opacity = '0';              // руки растворяются за 1с
+  handBlue.style.opacity = '0';
+
+  setTimeout(() => {
+    showScene(4);
+    startSong(choice);
+  }, HANDS_FADE_MS);
+}
+
+/* ============================================================
+   JS №8 — СЦЕНА 4: караоке со строгой привязкой к времени
+   ============================================================ */
+function startSong(choice) {
+  const song = SONGS[choice];
+  songMusic.src = song.audio;
+  songMusic.currentTime = 0;
+  songMusic.volume = 0.9;
+  currentLines = song.lines;
+  currentLineIndex = -1;
+  lyricEl.replaceChildren();
+  songMusic.play().catch(() => {});
+}
+
+// Точная синхронизация: НЕ делим трек поровну.
+// На каждом timeupdate берём последнюю строку, у которой time <= currentTime.
+songMusic.addEventListener('timeupdate', () => {
+  if (!currentLines) return;
+  const t = songMusic.currentTime;
+  let idx = -1;
+  for (let i = 0; i < currentLines.length; i++) {
+    if (currentLines[i].time <= t) idx = i;
+    else break; // массив отсортирован по time
+  }
+  if (idx >= 0 && idx !== currentLineIndex) {
+    currentLineIndex = idx;
+    showLyric(currentLines[idx]);
+  }
+});
+
+function showLyric(line) {
+  // Все старые строки плавно растворяются, новая — спускается и печатается
+  const oldLines = Array.from(lyricEl.querySelectorAll('.line'));
+  const next = document.createElement('div');
+  next.className = 'line' + (line.dyn ? ' dyn' : '');
+
+  if (line.dyn) {
+    // Припев: отделяем последнюю букву — она будет «тянуться» и повторяться
+    const stem = document.createElement('span');
+    stem.textContent = line.text;
+    const tail = document.createElement('span');
+    tail.className = 'dyn-tail';
+    next.appendChild(stem);
+    next.appendChild(tail);
+    next._tail = tail;
+  } else {
+    // Обычная строка: слова встают волной, одно за другим
+    line.text.split(' ').forEach((word, i) => {
+      const w = document.createElement('span');
+      w.className = 'word';
+      w.textContent = word;
+      w.style.animationDelay = (i * 0.07).toFixed(2) + 's';
+      next.appendChild(w);
+      if (i < line.text.split(' ').length - 1) {
+        next.appendChild(document.createTextNode(' '));
+      }
+    });
+  }
+
+  lyricEl.appendChild(next);
+  requestAnimationFrame(() => next.classList.add('show'));
+
+  oldLines.forEach((old) => {
+    old.classList.remove('show');
+    old.classList.add('hide');
+    setTimeout(() => old.remove(), 700);
+  });
+
+  if (line.dyn) startStretch(next, line.text);
+}
+
+// Постепенно дописываем последнюю букву: «Династия» → «Династияяяяяяяя»
+function startStretch(container, text) {
+  clearInterval(stretchTimer);
+  const tail = container._tail;
+  if (!tail) return;
+  const lastLetter = text.slice(-1); // «я» у Династии, «е» у В клубе
+  let count = 0;
+  stretchTimer = setInterval(() => {
+    if (!container.isConnected || count >= 8) {
+      clearInterval(stretchTimer);
+      return;
+    }
+    const letter = document.createElement('span');
+    letter.className = 'stretch-letter';
+    letter.textContent = lastLetter;
+    tail.appendChild(letter);
+    count++;
+  }, 170);
+}
+</script>
+</body>
+</html>
